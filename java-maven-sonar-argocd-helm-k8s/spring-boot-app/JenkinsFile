@@ -57,8 +57,7 @@ pipeline {
                 }
             }
         }
-
-        stage('Build and Push Docker Image') {
+stage('Build and Push Docker Image') {
     steps {
         script {
             withCredentials([usernamePassword(
@@ -67,9 +66,9 @@ pipeline {
                 passwordVariable: 'DOCKER_PASS'
             )]) {
                 sh '''
+                    #!/bin/bash
                     cd java-maven-sonar-argocd-helm-k8s/spring-boot-app
                     
-                    # Use commit hash for unique tagging
                     DOCKER_IMAGE="maryann123456789/ultimate-cicd"
                     TAG="${GIT_COMMIT:0:8}"
                     
