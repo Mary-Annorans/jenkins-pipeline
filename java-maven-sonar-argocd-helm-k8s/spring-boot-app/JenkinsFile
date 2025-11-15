@@ -1,16 +1,22 @@
 pipeline {
-    agent any  // Changed to run on Jenkins host directly
+    agent any
 
     environment {
         SONAR_URL = "http://54.166.186.138:9000/"
         DOCKER_IMAGE = "maryann/ultimate-cicd:${BUILD_NUMBER}"
+        // ✅ Added app directory path as variable
+        APP_DIR = "java-maven-sonar-argocd-helm-k8s/spring-boot-app"
+        MANIFESTS_DIR = "java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests"
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/Mary-Annorans/jenkins-pipeline.git'
+                
+                // ✅ Debug: Check actual directory structure
+                sh 'ls -la'
+                sh 'find . -name "pom.xml" -type f'
             }
         }
 
@@ -19,12 +25,15 @@ pipeline {
                 docker {
                     image 'maven:3.8.6-openjdk-11'
                     args '--user root -v /root/.m2:/root/.m2'
-                    reuseNode true  // Use same workspace
+                    reuseNode true
                 }
             }
             steps {
                 sh '''
-                    cd Jenkins-Zero-To-Hero/java-maven-sonar-argocd-helm-k8s/spring-boot-app
+                    # ✅ Use environment variable for path
+                    cd ${APP_DIR}
+                    pwd
+                    ls -la
                     mvn clean package
                 '''
             }
@@ -41,7 +50,8 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
                     sh '''
-                        cd Jenkins-Zero-To-Hero/java-maven-sonar-argocd-helm-k8s/spring-boot-app
+                        # ✅ Use environment variable
+                        cd ${APP_DIR}
                         mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}
                     '''
                 }
@@ -51,12 +61,28 @@ pipeline {
         stage('Build and Push Docker Image') {
             steps {
                 script {
+                    // ✅ Check Docker availability first
+                    sh '''
+                        echo "Checking Docker access..."
+                        docker version || echo "Docker not available"
+                    '''
+                    
                     withCredentials([usernamePassword(credentialsId: 'docker-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                         sh '''
-                            cd Jenkins-Zero-To-Hero/java-maven-sonar-argocd-helm-k8s/spring-boot-app
-                            docker build -t ${DOCKER_IMAGE} .
-                            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                            docker push ${DOCKER_IMAGE}
+                            # ✅ Use environment variable
+                            cd ${APP_DIR}
+                            
+                            # ✅ Check if Dockerfile exists
+                            if [ -f "Dockerfile" ]; then
+                                echo "Dockerfile found, building image..."
+                                docker build -t ${DOCKER_IMAGE} .
+                                echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                                docker push ${DOCKER_IMAGE}
+                            else
+                                echo "ERROR: Dockerfile not found in ${APP_DIR}"
+                                ls -la
+                                exit 1
+                            fi
                         '''
                     }
                 }
@@ -71,31 +97,45 @@ pipeline {
                             git config --global user.email "moranekwulu@gmail.com"
                             git config --global user.name "Mary-Annorans"
 
-                            # Update image tag in deployment YAML
-                            cd Jenkins-Zero-To-Hero/java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests
-                            sed -i "s|replaceImageTag|${BUILD_NUMBER}|g" deployment.yml
-                            
-                            # Check if there are changes
-                            if git diff --quiet; then
-                                echo "No changes to commit"
-                            else
-                                git add deployment.yml
-                                git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+                            # ✅ Check if manifests directory exists
+                            if [ -d "${MANIFESTS_DIR}" ]; then
+                                cd ${MANIFESTS_DIR}
                                 
-                                # Push using token authentication
-                                git push https://${GITHUB_TOKEN}@github.com/Mary-Annorans/jenkins-pipeline.git HEAD:main
+                                # ✅ Check if deployment file exists
+                                if [ -f "deployment.yml" ]; then
+                                    sed -i "s|replaceImageTag|${BUILD_NUMBER}|g" deployment.yml
+                                    
+                                    # ✅ Show changes for debugging
+                                    echo "Updated deployment.yml:"
+                                    cat deployment.yml
+                                    
+                                    if git diff --quiet; then
+                                        echo "No changes to commit"
+                                    else
+                                        git add deployment.yml
+                                        git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+                                        git push https://${GITHUB_TOKEN}@github.com/Mary-Annorans/jenkins-pipeline.git HEAD:main
+                                    fi
+                                else
+                                    echo "ERROR: deployment.yml not found in ${MANIFESTS_DIR}"
+                                    ls -la
+                                    exit 1
+                                fi
+                            else
+                                echo "ERROR: Manifests directory ${MANIFESTS_DIR} not found"
+                                ls -la
+                                exit 1
                             fi
                         '''
                     }
                 }
             }
         }
-
     }
 
     post {
         always {
-            cleanWs()  // Clean workspace after build
+            cleanWs()
         }
         success {
             echo "Pipeline completed successfully!"
