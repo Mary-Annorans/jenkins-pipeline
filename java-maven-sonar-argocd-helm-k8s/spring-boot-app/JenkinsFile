@@ -59,36 +59,31 @@ pipeline {
         }
 
         stage('Build and Push Docker Image') {
-            steps {
-                script {
-                    // ✅ Check Docker availability first
-                    sh '''
-                        echo "Checking Docker access..."
-                        docker version || echo "Docker not available"
-                    '''
+    steps {
+        script {
+            withCredentials([usernamePassword(
+                credentialsId: 'docker-hub', 
+                usernameVariable: 'DOCKER_USER', 
+                passwordVariable: 'DOCKER_PASS'
+            )]) {
+                sh '''
+                    cd java-maven-sonar-argocd-helm-k8s/spring-boot-app
                     
-                    withCredentials([usernamePassword(credentialsId: 'docker-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh '''
-                            # ✅ Use environment variable
-                            cd ${APP_DIR}
-                            
-                            # ✅ Check if Dockerfile exists
-                            if [ -f "Dockerfile" ]; then
-                                echo "Dockerfile found, building image..."
-                                docker build -t ${DOCKER_IMAGE} .
-                                echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                                docker push ${DOCKER_IMAGE}
-                            else
-                                echo "ERROR: Dockerfile not found in ${APP_DIR}"
-                                ls -la
-                                exit 1
-                            fi
-                        '''
-                    }
-                }
+                    # Use commit hash for unique tagging
+                    DOCKER_IMAGE="maryann123456789/ultimate-cicd"
+                    TAG="${GIT_COMMIT:0:8}"
+                    
+                    echo "Building and pushing Docker image..."
+                    docker build -t $DOCKER_IMAGE:$TAG .
+                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    docker push $DOCKER_IMAGE:$TAG
+                    
+                    echo "✅ Docker image pushed successfully: $DOCKER_IMAGE:$TAG"
+                '''
             }
         }
-
+    }
+}
         stage('Update Deployment File') {
             steps {
                 script {
