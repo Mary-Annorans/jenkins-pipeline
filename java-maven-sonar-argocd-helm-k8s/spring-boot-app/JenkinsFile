@@ -4,7 +4,6 @@ pipeline {
     environment {
         SONAR_URL = "http://54.166.186.138:9000/"
         DOCKER_IMAGE = "maryann/ultimate-cicd:${BUILD_NUMBER}"
-        // ✅ Added app directory path as variable
         APP_DIR = "java-maven-sonar-argocd-helm-k8s/spring-boot-app"
         MANIFESTS_DIR = "java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests"
     }
@@ -13,8 +12,6 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/Mary-Annorans/jenkins-pipeline.git'
-                
-                // ✅ Debug: Check actual directory structure
                 sh 'ls -la'
                 sh 'find . -name "pom.xml" -type f'
             }
@@ -30,7 +27,6 @@ pipeline {
             }
             steps {
                 sh '''
-                    # ✅ Use environment variable for path
                     cd ${APP_DIR}
                     pwd
                     ls -la
@@ -50,59 +46,56 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
                     sh '''
-                        # ✅ Use environment variable
                         cd ${APP_DIR}
                         mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=${SONAR_URL}
                     '''
                 }
             }
         }
-stage('Build and Push Docker Image') {
-    steps {
-        script {
-            withCredentials([usernamePassword(
-                credentialsId: 'docker-hub', 
-                usernameVariable: 'DOCKER_USER', 
-                passwordVariable: 'DOCKER_PASS'
-            )]) {
-                sh '''
-                    #!/bin/bash
-                    cd java-maven-sonar-argocd-helm-k8s/spring-boot-app
-                    
-                    DOCKER_IMAGE="maryann123456789/ultimate-cicd"
-                    TAG="${GIT_COMMIT:0:8}"
-                    
-                    echo "Building and pushing Docker image..."
-                    docker build -t $DOCKER_IMAGE:$TAG .
-                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                    docker push $DOCKER_IMAGE:$TAG
-                    
-                    echo "✅ Docker image pushed successfully: $DOCKER_IMAGE:$TAG"
-                '''
+
+        stage('Build and Push Docker Image') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'docker-hub',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        sh '''#!/bin/bash
+                            cd ${APP_DIR}
+
+                            DOCKER_IMAGE="maryann123456789/ultimate-cicd"
+                            TAG=$(echo $GIT_COMMIT | cut -c1-8)
+
+                            echo "Building and pushing Docker image..."
+                            docker build -t $DOCKER_IMAGE:$TAG .
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                            docker push $DOCKER_IMAGE:$TAG
+
+                            echo " Docker image pushed successfully: $DOCKER_IMAGE:$TAG"
+                        '''
+                    }
+                }
             }
         }
-    }
-}
+
         stage('Update Deployment File') {
             steps {
                 script {
                     withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
-                        sh '''
+                        sh '''#!/bin/bash
                             git config --global user.email "moranekwulu@gmail.com"
                             git config --global user.name "Mary-Annorans"
 
-                            # ✅ Check if manifests directory exists
                             if [ -d "${MANIFESTS_DIR}" ]; then
                                 cd ${MANIFESTS_DIR}
-                                
-                                # ✅ Check if deployment file exists
+
                                 if [ -f "deployment.yml" ]; then
                                     sed -i "s|replaceImageTag|${BUILD_NUMBER}|g" deployment.yml
-                                    
-                                    # ✅ Show changes for debugging
+
                                     echo "Updated deployment.yml:"
                                     cat deployment.yml
-                                    
+
                                     if git diff --quiet; then
                                         echo "No changes to commit"
                                     else
